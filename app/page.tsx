@@ -1,65 +1,131 @@
-import Image from "next/image";
+"use client"
+
+import { useState, useRef, useEffect } from "react"
+// import ChatPanel from "@/components/chat-panel"
+// import JoinForm from "@/components/join-form"
+
+import ChatPanel from "@/components/chat-panel"
+import JoinForm from "@/components/join-form"
+
+interface Message {
+  type: "chat" | "system"
+  sender: string
+  message: string
+  timestamp: number
+}
 
 export default function Home() {
+  const [joined, setJoined] = useState(false)
+  const [username, setUsername] = useState("")
+  const [roomId, setRoomId] = useState("")
+  const [messages, setMessages] = useState<Message[]>([])
+  const [isConnected, setIsConnected] = useState(false)
+  const [isConnecting, setIsConnecting] = useState(false)
+  const wsRef = useRef<WebSocket | null>(null)
+  const [connectionError, setConnectionError] = useState("")
+
+  const handleJoin = (user: string, room: string) => {
+    setUsername(user)
+    setRoomId(room)
+    setIsConnecting(true)
+    setConnectionError("")
+    connectWebSocket(user, room)
+  }
+
+  const connectWebSocket = (user: string, room: string) => {
+    const wsUrl = `ws://localhost:8080`
+
+    try {
+      const ws = new WebSocket(wsUrl)
+
+      ws.onopen = () => {
+        console.log("[v0] WebSocket connected")
+        setIsConnected(true)
+        setIsConnecting(false)
+        ws.send(
+          JSON.stringify({
+            type: "join",
+            username: user,
+            roomId: room,
+          }),
+        )
+        setJoined(true)
+      }
+
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data)
+          console.log("[v0] Message received:", data)
+          setMessages((prev) => [...prev, data])
+        } catch (error) {
+          console.error("Failed to parse message:", error)
+        }
+      }
+
+      ws.onerror = (error) => {
+        console.error("[v0] WebSocket error:", error)
+        setIsConnected(false)
+        setIsConnecting(false)
+        setConnectionError("Failed to connect to chat server")
+      }
+
+      ws.onclose = () => {
+        console.log("[v0] WebSocket closed")
+        setIsConnected(false)
+        setIsConnecting(false)
+        setJoined(false)
+      }
+
+      wsRef.current = ws
+    } catch (error) {
+      console.error("[v0] Connection error:", error)
+      setConnectionError("Failed to establish connection")
+      setIsConnecting(false)
+    }
+  }
+
+  const sendMessage = (message: string) => {
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(
+        JSON.stringify({
+          type: "chat",
+          message: message,
+        }),
+      )
+    }
+  }
+
+  const handleDisconnect = () => {
+    if (wsRef.current) {
+      wsRef.current.close()
+    }
+    setJoined(false)
+    setMessages([])
+    setConnectionError("")
+  }
+
+  useEffect(() => {
+    return () => {
+      if (wsRef.current) {
+        wsRef.current.close()
+      }
+    }
+  }, [])
+
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex min-h-screen w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
+    <main className="h-screen bg-background text-foreground flex items-center justify-center p-4">
+      {!joined ? (
+        <JoinForm onJoin={handleJoin} isConnecting={isConnecting} connectionError={connectionError} />
+      ) : (
+        <ChatPanel
+          username={username}
+          roomId={roomId}
+          messages={messages}
+          onSendMessage={sendMessage}
+          onDisconnect={handleDisconnect}
+          isConnected={isConnected}
         />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
-    </div>
-  );
+      )}
+    </main>
+  )
 }

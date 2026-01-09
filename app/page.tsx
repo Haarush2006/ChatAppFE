@@ -1,9 +1,6 @@
 "use client"
 
-import { useState, useRef, useEffect } from "react"
-// import ChatPanel from "@/components/chat-panel"
-// import JoinForm from "@/components/join-form"
-
+import { useEffect, useRef, useState } from "react"
 import ChatPanel from "@/components/chat-panel"
 import JoinForm from "@/components/join-form"
 
@@ -21,101 +18,106 @@ export default function Home() {
   const [messages, setMessages] = useState<Message[]>([])
   const [isConnected, setIsConnected] = useState(false)
   const [isConnecting, setIsConnecting] = useState(false)
-  const wsRef = useRef<WebSocket | null>(null)
   const [connectionError, setConnectionError] = useState("")
 
+  const wsRef = useRef<WebSocket | null>(null)
+
+  useEffect(() => {
+    const storedUser = sessionStorage.getItem("chat:user")
+    const storedRoom = sessionStorage.getItem("chat:room")
+
+    if (storedUser && storedRoom) {
+      setUsername(storedUser)
+      setRoomId(storedRoom)
+      setJoined(true)
+      setIsConnecting(true)
+    }
+  }, [])
+
   const handleJoin = (user: string, room: string) => {
+    sessionStorage.setItem("chat:user", user)
+    sessionStorage.setItem("chat:room", room)
+
     setUsername(user)
     setRoomId(room)
+    setJoined(true)
     setIsConnecting(true)
     setConnectionError("")
-    connectWebSocket(user, room)
   }
 
-  const connectWebSocket = (user: string, room: string) => {
-    const wsUrl = `ws://localhost:8080`
+  useEffect(() => {
+    if (!joined || !username || !roomId) return
 
-    try {
-      const ws = new WebSocket(wsUrl)
+    const ws = new WebSocket("ws://localhost:8080")
+    wsRef.current = ws
 
-      ws.onopen = () => {
-        console.log("[v0] WebSocket connected")
-        setIsConnected(true)
-        setIsConnecting(false)
-        ws.send(
-          JSON.stringify({
-            type: "join",
-            username: user,
-            roomId: room,
-          }),
-        )
-        setJoined(true)
-      }
-
-      ws.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data)
-          console.log("[v0] Message received:", data)
-          setMessages((prev) => [...prev, data])
-        } catch (error) {
-          console.error("Failed to parse message:", error)
-        }
-      }
-
-      ws.onerror = (error) => {
-        console.error("[v0] WebSocket error:", error)
-        setIsConnected(false)
-        setIsConnecting(false)
-        setConnectionError("Failed to connect to chat server")
-      }
-
-      ws.onclose = () => {
-        console.log("[v0] WebSocket closed")
-        setIsConnected(false)
-        setIsConnecting(false)
-        setJoined(false)
-      }
-
-      wsRef.current = ws
-    } catch (error) {
-      console.error("[v0] Connection error:", error)
-      setConnectionError("Failed to establish connection")
+    ws.onopen = () => {
+      setIsConnected(true)
       setIsConnecting(false)
+
+      ws.send(
+        JSON.stringify({
+          type: "join",
+          username,
+          roomId,
+        })
+      )
     }
-  }
+
+    ws.onmessage = (event) => {
+      const data = JSON.parse(event.data)
+
+      if (data.type === "history") {
+        setMessages(data.messages)
+      } else {
+        setMessages((prev) => [...prev, data])
+      }
+    }
+
+    ws.onerror = () => {
+      setConnectionError("WebSocket connection failed")
+      setIsConnecting(false)
+      setIsConnected(false)
+    }
+
+    ws.onclose = () => {
+      setIsConnected(false)
+    }
+
+    return () => {
+      ws.close()
+    }
+  }, [joined, username, roomId])
 
   const sendMessage = (message: string) => {
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(
         JSON.stringify({
           type: "chat",
-          message: message,
-        }),
+          message,
+        })
       )
     }
   }
 
   const handleDisconnect = () => {
-    if (wsRef.current) {
-      wsRef.current.close()
-    }
+    sessionStorage.removeItem("chat:user")
+    sessionStorage.removeItem("chat:room")
+
+    wsRef.current?.close()
     setJoined(false)
     setMessages([])
     setConnectionError("")
   }
 
-  useEffect(() => {
-    return () => {
-      if (wsRef.current) {
-        wsRef.current.close()
-      }
-    }
-  }, [])
-
   return (
-    <main className="h-screen bg-background text-foreground flex items-center justify-center p-4">
+    <main className="h-screen flex items-center justify-center p-4">
       {!joined ? (
-        <JoinForm onJoin={handleJoin} isConnecting={isConnecting} connectionError={connectionError} />
+        <JoinForm
+          onJoin={handleJoin}
+          isConnecting={isConnecting}
+          connectionError={connectionError}
+        />
       ) : (
         <ChatPanel
           username={username}
